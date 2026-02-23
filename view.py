@@ -135,7 +135,7 @@ def criar_usuario():
         if cur.fetchone():
             return jsonify({"erro": "Usuario ja existe"}), 400
         if not validacao_senha(senha):
-            return jsonify({"error": "Senha deve ter pelo 8 caracteres,incluindo letras maiúsculas, minúsculas, numeros ecaracteres especiais."}), 400
+            return jsonify({"error": "Senha deve ter pelo 8 caracteres,incluindo letras maiúsculas, minúsculas, numeros e caracteres especiais."}), 400
 
         senha_hash = generate_password_hash(senha).decode('utf-8')
 
@@ -244,7 +244,7 @@ def login():
 @app.route('/livros_relatorio', methods=['GET'])
 def livros_relatorio():
     cursor = con.cursor()
-    cursor.execute("SELECT id_livro, titulo, autor, ano_publicacao FROM livros")
+    cursor.execute("SELECT id_livro, titulo, autor, ano_publicacao FROM livro")
     livros = cursor.fetchall()
     cursor.close()
     pdf = FPDF()
