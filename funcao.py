@@ -1,3 +1,6 @@
+import smtplib
+from email.mime.text import MIMEText
+
 def validacao_senha(senha: str):
     t_maiuscula = False
     t_minuscula = False
@@ -19,3 +22,18 @@ def validacao_senha(senha: str):
             t_caractere_especial = True
     if t_maiuscula and t_minuscula and t_numero and t_caractere_especial and t_oito:
         return True
+
+def enviando_email(destinatario,assunto,mensagem):
+    user = 'senaienzo.carvalho@gmail.com'
+    passwd = 'anqm aqay topw gofc'
+
+    msg = MIMEText(mensagem)
+    msg['From'] = user
+    msg['To'] = destinatario
+    msg['Subject'] = assunto
+
+    server = smtplib.SMTP('smtp.gmail.com',587)
+    server.starttls()
+    server.login(user, passwd)
+    server.sendmail(msg)
+    server.quit()

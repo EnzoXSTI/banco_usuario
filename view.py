@@ -1,8 +1,12 @@
-from flask import Flask, jsonify, request, send_file
+import os
+from flask import Flask, jsonify, request, send_file, Response
 from main import app, con
-from funcao import validacao_senha
+from funcao import validacao_senha,enviando_email
 from flask_bcrypt import generate_password_hash, check_password_hash
 from fpdf import FPDF
+import pygal
+import threading
+
 
 
 @app.route('/livro', methods=['GET'])
@@ -28,25 +32,41 @@ def livro():
 
 @app.route('/criar_livro', methods=['POST'])
 def criar_livro():
-    dados = request.get_json()
 
-    titulo = dados.get('titulo')
-    autor = dados.get('autor')
-    ano_publicacao = dados.get('ano_publicacao')
+    titulo = request.form.get('titulo')
+    autor = request.form.get('autor')
+    ano_publicacao = request.form.get('ano_publicacao')
+    imagem = request.files.get('imagem')
+
     try:
         cur = con.cursor()
+
         cur.execute("select 1 from livro where titulo = ?", (titulo,))
         if cur.fetchone():
             return jsonify({"erro": "livro ja existe"}), 400
         cur.execute("""INSERT INTO livro (titulo, autor, ano_publicacao) values (?, ?, ?)""",
                     (titulo, autor, ano_publicacao))
+
+        codigo_livro = cur.fetchone()[0]
         con.commit()
+
+        if imagem:
+            nome_imagem = f"{codigo_livro}.jpg"
+            caminho_imagem_destino = os.path.join(app.config['UPLOAD_FOLDER'], "livro")
+            os.makedirs(caminho_imagem_destino, exist_ok=True)
+            caminho_imagem = os.path.join(caminho_imagem_destino, nome_imagem)
+            imagem.save(caminho_imagem)
+
+
+
+
         return jsonify({
             'mensagem': "Livro cadastrado com sucesso!",
             'livro': {
                 'titulo': titulo,
                 'autor': autor,
-                'ano_publicacao': ano_publicacao
+                'ano_publicacao': ano_publicacao,
+                'imagem': caminho_imagem
             }
         }), 201
     except Exception as e:
@@ -268,3 +288,40 @@ def livros_relatorio():
     pdf_path = "relatorio_livros.pdf"
     pdf.output(pdf_path)
     return send_file(pdf_path, as_attachment=True, mimetype='application/pdf')
+
+@app.route('/grafico')
+def grafico():
+    cur =  con.cursor()
+    cur.execute("""select ano_publicacao,count(*)
+                   from livro 
+                   group by ano_publicacao
+                   order by ano_publicacao
+    """)
+    resultado = cur.fetchall()
+    cur.close()
+
+    grafico = pygal.Bar()
+    grafico.title = "Grafico de livros"
+
+    for g in resultado:
+        grafico.add(str(g[0]),[1])
+    return Response(grafico.render(), mimetype='image/svg+xml' )
+
+
+@app.route('/enviar_email', methods=['POST'] )
+def enviar_email():
+    dados = request.json
+    assunto = dados.get('subject')
+    mensagem = dados.get('message')
+    destinatario = dados.get('to')
+
+    thread = threading.Thread(target=enviar_email,
+                              args=(assunto, mensagem, destinatario))
+
+    thread.start()
+
+    return jsonify({'mensagem': "Email enviado com sucesso!!!"}), 200
+
+
+
+
