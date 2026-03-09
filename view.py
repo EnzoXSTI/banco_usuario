@@ -1,16 +1,34 @@
 import os
-from flask import Flask, jsonify, request, send_file, Response
+from os.path import samefile
+
+import jwt
+from flask import Flask, jsonify, request, send_file, Response, make_response
 from main import app, con
-from funcao import validacao_senha,enviando_email
+from funcao import validacao_senha, enviando_email, remover_bearer,gerar_token
 from flask_bcrypt import generate_password_hash, check_password_hash
 from fpdf import FPDF
 import pygal
 import threading
 
+senha_secreta = app.config['SECRET_KEY']
+
 
 
 @app.route('/livro', methods=['GET'])
 def livro():
+
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({"message": "token necessário"}), 401
+    token = remover_bearer(token)
+
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({"message": "token expirado"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"message": "token invalido"}), 401
+
     try:
         cur = con.cursor()
         cur.execute("SELECT id_livro, titulo, autor,ano_publicacao FROM livro ")
@@ -33,12 +51,26 @@ def livro():
 @app.route('/criar_livro', methods=['POST'])
 def criar_livro():
 
-    titulo = request.form.get('titulo')
-    autor = request.form.get('autor')
-    ano_publicacao = request.form.get('ano_publicacao')
-    imagem = request.files.get('imagem')
+    # token = request.headers.get('Authorization')
+    token =request.cookies.get("access_token")
+    if not token:
+        return jsonify({"message": "token necessário"}), 401
+    token = remover_bearer(token)
 
     try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({"message": "token expirado"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"message": "token invalido"}), 401
+
+    try:
+        titulo = request.form.get('titulo')
+        autor = request.form.get('autor')
+        ano_publicacao = request.form.get('ano_publicacao')
+        imagem = request.files.get('imagem')
+
+
         cur = con.cursor()
 
         cur.execute("select 1 from livro where titulo = ?", (titulo,))
@@ -220,9 +252,8 @@ def delete_usuario(id):
     cur.close()
 
     return jsonify({"message": "Usuario execluido com sucesso", 'id_usuario': id}), 200
-
-@app.route('/login', methods = ['GET'])
-def login():
+@app.route('/login_bolacha', methods=['POST'])
+def login_bolacha():
     dados = request.get_json()
 
     email = dados.get('email')
@@ -237,29 +268,91 @@ def login():
             "SELECT id_usuario, nome, email, senha FROM usuarios WHERE email = ?",
             (email,)
         )
+
         usuario = cur.fetchone()
 
         if not usuario:
             return jsonify({"error": "Email ou senha inválidos"}), 401
 
         senha_hash = usuario[3]
+        id_usuario = usuario[0]
 
-        if not check_password_hash(senha_hash, senha):
-            return jsonify({"error": "Email ou senha inválidos"}), 401
+        if check_password_hash(senha_hash, senha):
 
-        return jsonify({
-            "message": "Login realizado com sucesso",
-            "usuario": {
-                "id_usuario": usuario[0],
-                "nome": usuario[1],
-                "email": usuario[2]
-            }
-        }), 200
+            token = gerar_token(id_usuario)
+            resp = make_response(jsonify({"message": "logado com sucesso"}), 200)
+            resp.set_cookie("access_token", token, httponly=True,
+                                                        secure=False,
+                                                        samesite="Lax",
+                                                        path="/",
+                                                        max_age=3600)
+
+            return resp
+
+            # return jsonify({
+            #     "message": "Login realizado com sucesso",
+            #     "usuario": {
+            #         "id_usuario": usuario[0],
+            #         "nome": usuario[1],
+            #         "email": usuario[2],
+            #         "token": token
+            #     }
+            # }), 200
+
+        return jsonify({"error": "Email ou senha inválidos"}), 401
 
     except Exception as e:
         return jsonify({"error": f"Erro ao realizar login: {e}"}), 500
+
     finally:
         cur.close()
+
+# @app.route('/login', methods=['POST'])
+# def login():
+#     dados = request.get_json()
+#
+#     email = dados.get('email')
+#     senha = dados.get('senha')
+#
+#     if not email or not senha:
+#         return jsonify({"error": "Email e senha são obrigatórios"}), 400
+#
+#     try:
+#         cur = con.cursor()
+#         cur.execute(
+#             "SELECT id_usuario, nome, email, senha FROM usuarios WHERE email = ?",
+#             (email,)
+#         )
+#
+#         usuario = cur.fetchone()
+#
+#         if not usuario:
+#             return jsonify({"error": "Email ou senha inválidos"}), 401
+#
+#         senha_hash = usuario[3]
+#         id_usuario = usuario[0]
+#
+#         if check_password_hash(senha_hash, senha):
+#
+#             token = gerar_token(id_usuario)
+#
+#             return jsonify({
+#                 "message": "Login realizado com sucesso",
+#                 "usuario": {
+#                     "id_usuario": usuario[0],
+#                     "nome": usuario[1],
+#                     "email": usuario[2],
+#                     "token": token
+#                 }
+#             }), 200
+#
+#         return jsonify({"error": "Email ou senha inválidos"}), 401
+#
+#     except Exception as e:
+#         return jsonify({"error": f"Erro ao realizar login: {e}"}), 500
+#
+#     finally:
+#         cur.close()
 
 @app.route('/livros_relatorio', methods=['GET'])
 def livros_relatorio():
